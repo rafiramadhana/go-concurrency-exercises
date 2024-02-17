@@ -10,8 +10,11 @@ package main
 
 import (
 	"container/list"
+	"sync"
 	"testing"
 )
+
+var mut sync.Mutex
 
 // CacheSize determines how big the cache can grow
 const CacheSize = 100
@@ -44,24 +47,49 @@ func New(load KeyStoreCacheLoader) *KeyStoreCache {
 
 // Get gets the key from cache, loads it from the source if needed
 func (k *KeyStoreCache) Get(key string) string {
-	if e, ok := k.cache[key]; ok {
+	mut.Lock()
+	defer mut.Unlock()
+
+	e, ok := k.cache[key]
+	if ok {
 		k.pages.MoveToFront(e)
 		return e.Value.(page).Value
 	}
+
+	var mut2 sync.RWMutex
+	chanP := make(chan page)
 	// Miss - load from database and save it in cache
-	p := page{key, k.load(key)}
-	// if cache is full remove the least used item
-	if len(k.cache) >= CacheSize {
-		end := k.pages.Back()
-		// remove from map
-		delete(k.cache, end.Value.(page).Key)
-		// remove from list
-		k.pages.Remove(end)
-	}
-	k.pages.PushFront(p)
-	k.cache[key] = k.pages.Front()
+	go func() {
+		tempP := page{key, k.load(key)}
+		mut2.Lock()
+		k.pages.PushFront(tempP)
+		mut2.Unlock()
+		mut2.RLock()
+		front := k.pages.Front()
+		mut2.RUnlock()
+		k.cache[key] = front
+		chanP <- tempP
+	}()
+	go func() {
+		// if cache is full remove the least used item
+		mut2.RLock()
+		isFull := len(k.cache) >= CacheSize
+		mut2.RUnlock()
+		if isFull {
+			end := k.pages.Back()
+			// remove from map
+			mut2.Lock()
+			delete(k.cache, end.Value.(page).Key)
+			// remove from list
+			k.pages.Remove(end)
+			mut2.Unlock()
+		}
+	}()
+	p := <-chanP
 	return p.Value
 }
+
+// Get from DB -> Validate (removal) cache -> Add to cache
 
 // Loader implements KeyStoreLoader
 type Loader struct {
