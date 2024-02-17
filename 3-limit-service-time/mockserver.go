@@ -35,16 +35,22 @@ func RunMockServer() {
 	go createMockRequest(5, shortProcess, &u2)
 
 	wg.Wait()
+
+	// FIXME: Debugging
+	fmt.Printf("%+v\n", u1)
+	fmt.Printf("%+v\n", u2)
 }
 
 func createMockRequest(pid int, fn func(), u *User) {
 	fmt.Println("UserID:", u.ID, "\tProcess", pid, "started.")
+	start := time.Now()
 	res := HandleRequest(fn, u)
-
+	dur := time.Now().Sub(start)
+	
 	if res {
-		fmt.Println("UserID:", u.ID, "\tProcess", pid, "done.")
+		fmt.Println("UserID:", u.ID, "\tProcess", pid, "done. {duration: ", dur.Milliseconds(), "ms}")
 	} else {
-		fmt.Println("UserID:", u.ID, "\tProcess", pid, "killed. (No quota left)")
+		fmt.Println("UserID:", u.ID, "\tProcess", pid, "killed. (No quota left) {duration: ", dur.Milliseconds(), "ms}")
 	}
 
 	wg.Done()
